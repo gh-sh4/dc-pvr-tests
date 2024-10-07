@@ -60,6 +60,5 @@ TA_OL_POINTERS_t pvr_read_ta_ol_pointers(unsigned index);
 void vram32_write32(uint32_t vram_addr, uint32_t data);
 uint32_t vram32_read32(uint32_t vram_addr);
 
-void pvr_dump_vram(const char *const name);
-void pvr_dump_regs(const char *const name);
-void pvr_dump(const char *const name);
+void pvr_dump_vram(FILE *dump_file);
+void pvr_dump_regs(FILE *dump_file);

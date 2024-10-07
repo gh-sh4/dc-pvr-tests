@@ -13,6 +13,8 @@
 #include "test.h"
 #include "pvr.h"
 
+using namespace test_flags;
+
 void
 ta_user_clip(unsigned tx_min, unsigned ty_min, unsigned tx_max, unsigned ty_max)
 {
@@ -99,8 +101,8 @@ print_ta_ol_pointers(FILE *logfile, unsigned count)
 /** Verify basic behavior about TA list initialization and TA_OL_POINTERS. This test
  * performs binning for a single triangle against a 2x2 arrangement of tiles. No rendering
  * is performed; this test is purely about binner behavior. */
-void
-test_ta_basic_single_poly(TestContext *context)
+
+REGISTER_TEST(ta_basic_single_poly, TEST_TA, "Basic TA single polygon test")
 {
   memset((void *)0xa500'0000, 0, 3 * 1024 * 1024);
 
@@ -118,26 +120,24 @@ test_ta_basic_single_poly(TestContext *context)
   TA_LIST_INIT = 0x8000'0000; // Trigger initializing the TA
   (void)TA_LIST_INIT;         // dummy read to ensure write completes
 
-  pvr_dump("ta_basic_single_poly_ta_init");
+  ctx.pvr_reg_vram_dump("ta_init");
 
   // ASSERTION: TA_LIST_INIT will not cause any tiles to have an initial OPB until
   // some sort of flush
-  test_assert(vram32_read32(0x0010'0000) == 0x0000'0000,
-              "OL entry should be uninitialized after list init");
+  ctx.assert(vram32_read32(0x0010'0000) == 0x0000'0000,
+             "OL entry should be uninitialized after list init");
 
-  FILE *logfile = fopen("/pc/ta_basic_single_poly.log", "w");
-
-  fprintf(logfile, "@ After TA INIT but before global polygon params...\n");
-  print_ta_ol_pointers(logfile, 4);
+  ctx.log("@ After TA INIT but before global polygon params...\n");
+  print_ta_ol_pointers(ctx.log_file(), 4);
 
   // Setup a single polygon
   ta_user_clip(0, 0, 1, 1);
   ta_global_poly0();
 
-  fprintf(logfile, "@ After global polygon params...\n");
-  test_assert(vram32_read32(0x0010'0000) == 0x0000'0000,
-              "OL entry should be uninitialized after global polygon params");
-  print_ta_ol_pointers(logfile, 4);
+  ctx.log("@ After global polygon params...\n");
+  ctx.assert(vram32_read32(0x0010'0000) == 0x0000'0000,
+             "OL entry should be uninitialized after global polygon params");
+  print_ta_ol_pointers(ctx.log_file(), 4);
 
   ta_poly0_vertex(0.0f, 0.0f, 1.0f);
   ta_poly0_vertex(0.0f, 48.0f, 1.0f);
@@ -145,17 +145,17 @@ test_ta_basic_single_poly(TestContext *context)
 
   thd_sleep(10);
 
-  fprintf(logfile, "@ After vertex params...\n");
-  test_assert(vram32_read32(0x0010'0000) == 0x0000'0000,
-              "OL entry should be uninitialized after vertex params");
-  print_ta_ol_pointers(logfile, 4);
+  ctx.log("@ After vertex params...\n");
+  ctx.assert(vram32_read32(0x0010'0000) == 0x0000'0000,
+             "OL entry should be uninitialized after vertex params");
+  print_ta_ol_pointers(ctx.log_file(), 4);
 
   // At this point, TA_OL_POINTERS should have a valid entry pointing at the first OL/OPB
   // entry
   TA_OL_POINTERS_t ol = pvr_read_ta_ol_pointers(0);
-  test_assert(ol.entry, "TA_OL_POINTERS entry bit should be set");
-  test_assert((ol.addr << 2) == 0x0010'0000,
-              "TA_OL_POINTERS addr should point at the first OL entry");
+  ctx.assert(ol.entry, "TA_OL_POINTERS entry bit should be set");
+  ctx.assert((ol.addr << 2) == 0x0010'0000,
+             "TA_OL_POINTERS addr should point at the first OL entry");
 
   ta_end_of_list();
 
@@ -164,21 +164,18 @@ test_ta_basic_single_poly(TestContext *context)
   // At this point, TA_OL_POINTERS entry is no longer valid and OL points to ISP
   // parameters at the start of VRAM
 
-  fprintf(logfile, "@ After end of opaque list...\n");
+  ctx.log("@ After end of opaque list...\n");
 
   ol = pvr_read_ta_ol_pointers(0);
-  test_assert(!ol.entry, "TA_OL_POINTERS entry bit should not be set");
-  test_assert(vram32_read32(0x0010'0000) == 0x8020'0000,
-              "OL entry should be initialized after end of opaque list");
-  print_ta_ol_pointers(logfile, 4);
+  ctx.assert(!ol.entry, "TA_OL_POINTERS entry bit should not be set");
+  ctx.assert(vram32_read32(0x0010'0000) == 0x8020'0000,
+             "OL entry should be initialized after end of opaque list");
+  print_ta_ol_pointers(ctx.log_file(), 4);
 
-  pvr_dump("ta_basic_single_poly_post");
-
-  fclose(logfile);
+  ctx.pvr_reg_vram_dump("end_of_test");
 }
 
-void
-test_ta_nan_depth(TestContext *context)
+REGISTER_TEST(ta_nan_depth, test_flags::TEST_TA, "Demonstrate NaN handling by the TA")
 {
   memset((void *)0xa500'0000, 0, 3 * 1024 * 1024);
 
@@ -196,14 +193,11 @@ test_ta_nan_depth(TestContext *context)
   TA_LIST_INIT = 0x8000'0000; // Trigger initializing the TA
   (void)TA_LIST_INIT;         // dummy read to ensure write completes
 
-  FILE *logfile = fopen("/pc/ta_nan_depth.log", "w");
-
-  pvr_dump("ta_nan_depth_ta_init");
+  ctx.pvr_reg_vram_dump("ta_init");
 
   const float NaN = std::numeric_limits<float>::quiet_NaN();
 
   // Setup a single polygon
-  ta_user_clip(0, 0, 1, 1);
   ta_global_poly0();
   ta_poly0_vertex(-NaN, -NaN, NaN);
   ta_poly0_vertex(-NaN, 30, NaN);
@@ -214,11 +208,10 @@ test_ta_nan_depth(TestContext *context)
 
   // NaN is treated the same as infinite by the TA, so the polygon should be binned
   // only to the first tile
-  test_assert(vram32_read32(0x0010'0000) == 0x8020'0000, "Tile 0 receives polygon");
-  test_assert(vram32_read32(0x0010'0020) == 0xf000'0000, "Tile 1 receives no polygon");
-  test_assert(vram32_read32(0x0010'0040) == 0xf000'0000, "Tile 2 receives no polygon");
-  test_assert(vram32_read32(0x0010'0060) == 0xf000'0000, "Tile 3 receives no polygon");
+  ctx.assert(vram32_read32(0x0010'0000) == 0x8020'0000, "Tile 0 receives polygon");
+  ctx.assert(vram32_read32(0x0010'0020) == 0xf000'0000, "Tile 1 receives no polygon");
+  ctx.assert(vram32_read32(0x0010'0040) == 0xf000'0000, "Tile 2 receives no polygon");
+  ctx.assert(vram32_read32(0x0010'0060) == 0xf000'0000, "Tile 3 receives no polygon");
 
-  pvr_dump("ta_nan_depth_post");
-  fclose(logfile);
+  ctx.pvr_reg_vram_dump("end_of_test");
 }

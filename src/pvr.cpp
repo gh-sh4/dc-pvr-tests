@@ -35,50 +35,22 @@ const uint32_t kVRAMDumpBufferBytes = 256 * 1024;
 uint32_t g_vram_dump_buffer[kVRAMDumpBufferBytes / sizeof(uint32_t)];
 
 void
-pvr_dump_vram(const char *const name)
+pvr_dump_vram(FILE *dump_file)
 {
-  char filename[256];
-  sprintf(filename, "/pc/vram_%s.bin", name);
-  FILE *dump_file = fopen(filename, "wb");
-
-  if (!dump_file) {
-    printf("Failed to open file %s\n", filename);
-    return;
-  }
-
-  printf("VRAM Dump (\"%s\") (+%ld KiB): ", name, kVRAMDumpBufferBytes / 1024);
-
   for (uint32_t vram_addr = 0; vram_addr < 8 * 1024 * 1024;
        vram_addr += kVRAMDumpBufferBytes) {
 
     // Read kVRAMDumpBufferBytes bytes from VRAM to the global buffer
-    const uint64_t start = timer_ms_gettime64();
     for (uint32_t i = 0; i < kVRAMDumpBufferBytes / 4; ++i) {
       g_vram_dump_buffer[i] = vram32_read32(vram_addr + i * sizeof(uint32_t));
     }
     fwrite(g_vram_dump_buffer, 1, kVRAMDumpBufferBytes, dump_file);
-    const uint64_t end = timer_ms_gettime64();
-
-    printf(".");
-    fflush(stdout);
   }
-  printf("\n");
-
-  fclose(dump_file);
 }
 
 void
-pvr_dump_regs(const char *const name)
+pvr_dump_regs(FILE *dump_file)
 {
-  char filename[256];
-  sprintf(filename, "/pc/pvr_regs_%s.bin", name);
-  FILE *dump_file = fopen(filename, "wb");
-
-  if (!dump_file) {
-    printf("Failed to open file %s\n", filename);
-    return;
-  }
-
   struct RegisterRange {
     uint32_t start; // inclusive, OR'd with 0xA05F'0000
     uint32_t end;   // inclusive, OR'd with 0xA05F'0000
@@ -106,8 +78,6 @@ pvr_dump_regs(const char *const name)
     { 0x9000, 0x9FFC }, // PALETTE_RAM
   };
 
-  const uint64_t start = timer_ms_gettime64();
-
   uint32_t count = 0;
   for (const auto &range : pvr_regs) {
     for (uint32_t offset = range.start; offset <= range.end; offset += sizeof(uint32_t)) {
@@ -118,16 +88,4 @@ pvr_dump_regs(const char *const name)
       count++;
     }
   }
-
-  const uint64_t end = timer_ms_gettime64();
-
-  printf("PVR Reg Dump (\"%s\") %lu 32b Words in %llu ms\n", name, count, end - start);
-  fclose(dump_file);
-}
-
-void
-pvr_dump(const char *const name)
-{
-  pvr_dump_vram(name);
-  pvr_dump_regs(name);
 }

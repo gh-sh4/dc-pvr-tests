@@ -49,11 +49,6 @@ pvr_init_params_t pvr_params = {
 
 /////
 
-// Declare all tests
-#define TEST(name, description) void test_##name(TestContext *);
-#include "test_list.h"
-#undef TEST
-
 std::atomic<bool> running;
 oneshot_timer_t *safety_timer = nullptr;
 
@@ -100,8 +95,8 @@ run_single_test(const char *name, TestFunc func, const char *description)
 
   printf("START_TEST %s\n", name);
   const uint64_t time_start = timer_ns_gettime64();
-  TestContext context       = { .name = name };
-  func(&context);
+  TestContext context(name);
+  func(context);
   const uint64_t time_end = timer_ns_gettime64();
   const uint64_t time_ns  = time_end - time_start;
   printf("END_TEST %s time_ns %llu\n", name, time_ns);
@@ -110,16 +105,25 @@ run_single_test(const char *name, TestFunc func, const char *description)
 void
 run_all_tests()
 {
-#define TEST(name, description) run_single_test(#name, test_##name, description);
-#include "test_list.h"
-#undef TEST
+  auto &test_list = get_test_list();
+
+  std::sort(test_list.begin(),
+            test_list.end(),
+            [](const TestDefinition &a, const TestDefinition &b) {
+              return strcmp(a.name, b.name) < 0;
+            });
+
+  // Run all tests
+  for (const TestDefinition &test : get_test_list()) {
+    run_single_test(test.name, test.func, test.description);
+  }
 }
 
 int
 main(int argc, char **argv)
 {
   // pvr_init(&pvr_params);
-  // pvr_set_bg_color(0.1f, 0.1f, 0.2f); 
+  // pvr_set_bg_color(0.1f, 0.1f, 0.2f);
 
   // Setup 'safety' timer to ensure the program doesn't hang
   last_safe_time_ms = timer_ms_gettime64();

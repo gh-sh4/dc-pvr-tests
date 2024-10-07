@@ -4,7 +4,9 @@ A set of discrete tests for verifying the behavior and performance characteristi
 
 # Running tests
 ```
-make && /opt/toolchains/dc/dcload-ip/host-src/tool/dc-tool-ip -t 192.168.1.232 -x build/dc-pvr-tests.elf -c "data"
+make clean && \
+make && \
+/opt/toolchains/dc/dcload-ip/host-src/tool/dc-tool-ip -t 192.168.1.232 -x build/dc-pvr-tests.elf -c "data"
 ```
 
 Make will generate a `data` folder where test dumps of various kinds will go

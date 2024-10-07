@@ -59,7 +59,8 @@ pvr_dump_vram(const char *const name)
     fwrite(g_vram_dump_buffer, 1, kVRAMDumpBufferBytes, dump_file);
     const uint64_t end = timer_ms_gettime64();
 
-    printf(".");fflush(stdout);
+    printf(".");
+    fflush(stdout);
   }
   printf("\n");
 
@@ -122,4 +123,11 @@ pvr_dump_regs(const char *const name)
 
   printf("PVR Reg Dump (\"%s\") %lu 32b Words in %llu ms\n", name, count, end - start);
   fclose(dump_file);
+}
+
+void
+pvr_dump(const char *const name)
+{
+  pvr_dump_vram(name);
+  pvr_dump_regs(name);
 }

@@ -2,10 +2,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #include <dc/pvr.h>
 #include <dc/sq.h>
 #include <unistd.h>
+
+#include <kos/thread.h>
 
 #include "test.h"
 #include "pvr.h"
@@ -115,8 +118,7 @@ test_ta_basic_single_poly(TestContext *context)
   TA_LIST_INIT = 0x8000'0000; // Trigger initializing the TA
   (void)TA_LIST_INIT;         // dummy read to ensure write completes
 
-  pvr_dump_vram("ta_basic_single_poly_ta_init");
-  pvr_dump_regs("ta_basic_single_poly_ta_init");
+  pvr_dump("ta_basic_single_poly_ta_init");
 
   // ASSERTION: TA_LIST_INIT will not cause any tiles to have an initial OPB until
   // some sort of flush
@@ -141,7 +143,7 @@ test_ta_basic_single_poly(TestContext *context)
   ta_poly0_vertex(0.0f, 48.0f, 1.0f);
   ta_poly0_vertex(48.0f, 48.0f, 1.0f, true);
 
-  sleep(1);
+  thd_sleep(10);
 
   fprintf(logfile, "@ After vertex params...\n");
   test_assert(vram32_read32(0x0010'0000) == 0x0000'0000,
@@ -157,7 +159,7 @@ test_ta_basic_single_poly(TestContext *context)
 
   ta_end_of_list();
 
-  sleep(1);
+  thd_sleep(10);
 
   // At this point, TA_OL_POINTERS entry is no longer valid and OL points to ISP
   // parameters at the start of VRAM
@@ -170,8 +172,53 @@ test_ta_basic_single_poly(TestContext *context)
               "OL entry should be initialized after end of opaque list");
   print_ta_ol_pointers(logfile, 4);
 
-  pvr_dump_vram("ta_basic_single_poly_post");
-  pvr_dump_regs("ta_basic_single_poly_post");
+  pvr_dump("ta_basic_single_poly_post");
 
+  fclose(logfile);
+}
+
+void
+test_ta_nan_depth(TestContext *context)
+{
+  memset((void *)0xa500'0000, 0, 3 * 1024 * 1024);
+
+  SOFTRESET = 0b011; // Assert then de-assert TA/ISP reset
+  SOFTRESET = 0b000;
+
+  TA_ISP_BASE       = 0x0000'0000; // First MiB for ISP data
+  TA_ISP_LIMIT      = 0x0010'0000;
+  TA_OL_BASE        = 0x0010'0000; // Second MiB for Object List data
+  TA_OL_LIMIT       = 0x0020'0000;
+  TA_NEXT_OPB_INIT  = 0x0018'0000; // This is wasteful, but doesn't matter for this test
+  TA_GLOB_TILE_CLIP = 0x0001'0001; // 2x2 tile arrangement (4 total tiles)
+  TA_ALLOC_CTRL     = 0x0000'0001; // 8 element OPBs for opaque lists only
+
+  TA_LIST_INIT = 0x8000'0000; // Trigger initializing the TA
+  (void)TA_LIST_INIT;         // dummy read to ensure write completes
+
+  FILE *logfile = fopen("/pc/ta_nan_depth.log", "w");
+
+  pvr_dump("ta_nan_depth_ta_init");
+
+  const float NaN = std::numeric_limits<float>::quiet_NaN();
+
+  // Setup a single polygon
+  ta_user_clip(0, 0, 1, 1);
+  ta_global_poly0();
+  ta_poly0_vertex(-NaN, -NaN, NaN);
+  ta_poly0_vertex(-NaN, 30, NaN);
+  ta_poly0_vertex(30, 30, NaN, true);
+  ta_end_of_list();
+
+  thd_sleep(10);
+
+  // NaN is treated the same as infinite by the TA, so the polygon should be binned
+  // only to the first tile
+  test_assert(vram32_read32(0x0010'0000) == 0x8020'0000, "Tile 0 receives polygon");
+  test_assert(vram32_read32(0x0010'0020) == 0xf000'0000, "Tile 1 receives no polygon");
+  test_assert(vram32_read32(0x0010'0040) == 0xf000'0000, "Tile 2 receives no polygon");
+  test_assert(vram32_read32(0x0010'0060) == 0xf000'0000, "Tile 3 receives no polygon");
+
+  pvr_dump("ta_nan_depth_post");
   fclose(logfile);
 }

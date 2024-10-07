@@ -62,3 +62,4 @@ uint32_t vram32_read32(uint32_t vram_addr);
 
 void pvr_dump_vram(const char *const name);
 void pvr_dump_regs(const char *const name);
+void pvr_dump(const char *const name);

@@ -119,7 +119,7 @@ int
 main(int argc, char **argv)
 {
   // pvr_init(&pvr_params);
-  // pvr_set_bg_color(0.1f, 0.1f, 0.2f);
+  // pvr_set_bg_color(0.1f, 0.1f, 0.2f); 
 
   // Setup 'safety' timer to ensure the program doesn't hang
   last_safe_time_ms = timer_ms_gettime64();

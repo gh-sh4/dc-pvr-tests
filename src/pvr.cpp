@@ -23,12 +23,30 @@ vram32_write32(uint32_t vram_addr, uint32_t data)
   vram[vram_addr / 4]     = data;
 }
 
+void
+vram32_memcpy(uint32_t vram_addr, const uint32_t *data, uint32_t num_bytes)
+{
+  volatile uint32_t *vram = (volatile uint32_t *)0xa500'0000;
+  for (uint32_t i = 0; i < num_bytes / 4; ++i) {
+    vram[vram_addr / 4 + i] = data[i];
+  }
+}
+
 uint32_t
 vram32_read32(uint32_t vram_addr)
 {
 #define VRAM32(_offset) ((volatile uint32_t *)(0xA500'0000 | (_offset)))
   return *VRAM32(vram_addr);
 #undef VRAM32
+}
+
+void
+vram32_memset(uint32_t vram_addr, uint32_t data, uint32_t num_bytes)
+{
+  volatile uint32_t *vram = (volatile uint32_t *)0xa500'0000;
+  for (uint32_t i = 0; i < num_bytes / 4; ++i) {
+    vram[vram_addr / 4 + i] = data;
+  }
 }
 
 const uint32_t kVRAMDumpBufferBytes = 256 * 1024;

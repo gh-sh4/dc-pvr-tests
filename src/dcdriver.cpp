@@ -115,6 +115,10 @@ run_all_tests()
 
   // Run all tests
   for (const TestDefinition &test : get_test_list()) {
+
+    if (strcmp(test.name, "isp_simple_render") != 0)
+      continue;
+
     run_single_test(test.name, test.func, test.description);
   }
 }

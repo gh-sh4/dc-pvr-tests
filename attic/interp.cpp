@@ -12,6 +12,7 @@ enum PVRReg : uint32_t
   PVR_REGION_BASE = 0x005f'802c,
   PVR_FB_R_CTRL   = 0x005f'8044,
   PVR_FB_R_SOF1   = 0x005f'8050,
+  PVR_FB_R_SIZE   = 0x005f'805C,
 };
 
 union RegionArrayControlWord {
@@ -123,24 +124,21 @@ init_binary_strings()
 
 class Dump {
 public:
-  Dump(const char *name)
+  Dump(const char *reg_path, const char *vram_path)
   {
     // Read VRAM
-    char filename[256];
-    sprintf(filename, "vram_%s.bin", name);
-    FILE *vram_file = fopen(filename, "rb");
+    FILE *vram_file = fopen(vram_path, "rb");
     if (!vram_file) {
-      printf("Failed to open file %s\n", filename);
+      printf("Failed to open file %s\n", vram_path);
       return;
     }
     _vram.reset(new uint8_t[8 * 1024 * 1024]);
     fread(_vram.get(), 1, 8 * 1024 * 1024, vram_file);
 
     // Read PVR MMIO Registers
-    sprintf(filename, "pvr_regs_%s.bin", name);
-    FILE *regs_file = fopen(filename, "rb");
+    FILE *regs_file = fopen(reg_path, "rb");
     if (!regs_file) {
-      printf("Failed to open file %s\n", filename);
+      printf("Failed to open file %s\n", reg_path);
       return;
     }
     while (!feof(regs_file)) {
@@ -289,18 +287,21 @@ dump_framebuffer(const Dump &dump, const char *name)
   const uint32_t fb_depth  = (FB_R_CTRL >> 2) & 0b11;
   const uint32_t fb_concat = (FB_R_CTRL >> 4) & 0b111;
 
-  const uint32_t width = 640, height = 480;
+  const uint32_t width             = (dump.read_reg(PVR_FB_R_SIZE) >> 0) & 0x3ff;
+  const uint32_t height            = (dump.read_reg(PVR_FB_R_SIZE) >> 10) & 0x3ff;
   const uint32_t stride            = width * 2;
   const uint32_t pixel_sizes[]     = { 2, 2, 3, 4 };
   const uint32_t pixel_bytes       = pixel_sizes[fb_depth];
   const uint32_t framebuffer_bytes = stride * height * pixel_bytes;
 
+  printf("Framebuffer %ux%u (%u bytes per pixel) %u bytes total\n",
+         width,
+         height,
+         pixel_bytes,
+         framebuffer_bytes);
+
   if (fb_start + framebuffer_bytes > 8 * 1024 * 1024) {
     die("Invalid framebuffer");
-  }
-
-  if (pixel_bytes != 2) {
-    die("Unsupported pixel format");
   }
 
   std::vector<uint8_t> fb_data(width * height * pixel_bytes);
@@ -312,33 +313,55 @@ dump_framebuffer(const Dump &dump, const char *name)
   for (uint32_t y = 0; y < height; ++y) {
     for (uint32_t x = 0; x < width; ++x) {
       const uint32_t fb_offset = (y * width + x) * pixel_bytes;
-      const uint16_t argb1555  = *(uint16_t *)(fb_data.data() + fb_offset);
       uint8_t r, g, b;
 
-      // Apply fb_concat (page 363)
-      switch (fb_depth) {
-        case 0b00: // 0555 RGB 16b
-          r = ((argb1555 >> 10) & 0x1f);
-          g = ((argb1555 >> 5) & 0x1f);
-          b = ((argb1555 >> 0) & 0x1f);
+      if (pixel_bytes == 2) {
+        const uint16_t pix16 = *(uint16_t *)(fb_data.data() + fb_offset);
 
-          r = (r << 3) | fb_concat;
-          g = (g << 3) | fb_concat;
-          b = (b << 3) | fb_concat;
-          break;
-        case 0b01: // 565 RGB 16b
-          r = ((argb1555 >> 11) & 0x1f);
-          g = ((argb1555 >> 5) & 0x3f);
-          b = ((argb1555 >> 0) & 0x1f);
+        // Apply fb_concat (page 363)
+        switch (fb_depth) {
+          case 0b00: // 0555 RGB 16b
+            r = ((pix16 >> 10) & 0x1f);
+            g = ((pix16 >> 5) & 0x1f);
+            b = ((pix16 >> 0) & 0x1f);
 
-          r = (r << 3) | fb_concat;
-          g = (g << 2) | fb_concat;
-          b = (b << 3) | fb_concat;
-          break;
-        case 0b10: // 888 RGB 32b
-          break;
-        case 0b11: // 0888 RGB 32b
-          break;
+            r = (r << 3) | fb_concat;
+            g = (g << 3) | fb_concat;
+            b = (b << 3) | fb_concat;
+            break;
+          case 0b01: // 565 RGB 16b
+            r = ((pix16 >> 11) & 0x1f);
+            g = ((pix16 >> 5) & 0x3f);
+            b = ((pix16 >> 0) & 0x1f);
+
+            r = (r << 3) | fb_concat;
+            g = (g << 2) | fb_concat;
+            b = (b << 3) | fb_concat;
+            break;
+          case 0b10: // 888 RGB 32b
+            break;
+          case 0b11: // 0888 RGB 32b
+            break;
+        }
+      } else if (pixel_bytes == 4) {
+        const uint32_t pix32 = *(uint32_t *)(fb_data.data() + fb_offset);
+
+        switch (fb_depth) {
+          case 0b00: // 0555 RGB 16b
+            break;
+          case 0b01: // 565 RGB 16b
+            break;
+          case 0b10: // 888 RGB 32b
+            break;
+          case 0b11: // 8888 ARGB 32b
+            r = (pix32 >> 16) & 0xff;
+            g = (pix32 >> 8) & 0xff;
+            b = (pix32 >> 0) & 0xff;
+            break;
+        }
+
+      } else {
+        die("Unsupported pixel depth during ppm output");
       }
 
       fputc(r, fb_file);
@@ -352,10 +375,15 @@ dump_framebuffer(const Dump &dump, const char *name)
 int
 main(int argc, char **argv)
 {
+  if (argc < 3) {
+    printf("Usage: %s [reg-dump] [vram-dump]\n", argv[0]);
+    return 1;
+  }
+
   init_binary_strings();
 
   printf("PVR Dump Interpreter\n");
-  Dump dump("ta_basic_single_poly_post");
+  Dump dump(argv[1], argv[2]);
 
   process_region_array(dump);
 

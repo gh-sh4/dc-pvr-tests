@@ -69,6 +69,86 @@ namespace map {
 const uint32_t TA_POLYGON_FIFO = 0x1000'0000;
 }
 
+enum class framebuffer_pixel_format_t
+{
+  KRGB_0555 = 0,
+  RGB_565   = 1,
+  ARGB_4444 = 2,
+  ARGB_1555 = 3,
+  RGB_888   = 4,
+  KRGB_0888 = 5,
+  ARGB_8888 = 6,
+};
+
+struct FrameBufferDef {
+  uint32_t vram32_addr;
+  uint32_t width;
+  uint32_t height;
+  uint32_t line_stride_bytes;
+  framebuffer_pixel_format_t pixel_format;
+};
+
+struct RegionArrayDef {
+  uint32_t region_array_offset;
+  uint32_t opb_start_offset;
+  uint32_t list_opb_sizes[5];
+  uint32_t width;
+  uint32_t height;
+};
+
+union RegionArrayControlWord {
+  struct {
+    uint32_t _0 : 2;
+    uint32_t tile_x : 6;
+    uint32_t tile_y : 6;
+    uint32_t _1 : 14;
+    uint32_t dont_flush : 1;
+    uint32_t presort : 1;
+    uint32_t dont_zclear : 1;
+    uint32_t last : 1;
+  };
+  uint32_t raw;
+};
+
+union RegionArrayListPtr {
+  struct {
+    uint32_t list_ptr : 24;
+    uint32_t _1 : 7;
+    uint32_t empty : 1;
+  };
+  uint32_t raw;
+};
+
+struct RegionArrayEntry {
+  RegionArrayControlWord control;
+  RegionArrayListPtr lists[5];
+};
+static_assert(sizeof(RegionArrayEntry) == 24);
+
+class MyPVR {
+public:
+  MyPVR();
+  ~MyPVR();
+
+  void wait_for_events(unsigned long mask);
+  void set_background(uint32_t vram_addr,
+                      float width,
+                      float height,
+                      uint32_t color,
+                      float depth);
+
+  void set_fb_regs(FrameBufferDef fb_def);
+
+  void setup_region_array(RegionArrayDef def);
+
+private:
+  void _handle_interrupt(unsigned long evt);
+  static void _static_interrupt_handler(unsigned long evt, void *data);
+
+  volatile unsigned long _evt_signals;
+  unsigned long _evt_registered;
+};
+
 struct isp_backgnd_plane_t {
   uint32_t isp_tsp_control;
   uint32_t tsp_control;

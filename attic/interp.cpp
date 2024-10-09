@@ -343,25 +343,19 @@ dump_framebuffer(const Dump &dump, const char *name)
           case 0b11: // 0888 RGB 32b
             break;
         }
+      } else if (pixel_bytes == 3) {
+        die("Unsupported pixel format 888 RGB 32b");
+        
       } else if (pixel_bytes == 4) {
         const uint32_t pix32 = *(uint32_t *)(fb_data.data() + fb_offset);
 
-        switch (fb_depth) {
-          case 0b00: // 0555 RGB 16b
-            break;
-          case 0b01: // 565 RGB 16b
-            break;
-          case 0b10: // 888 RGB 32b
-            break;
-          case 0b11: // 8888 ARGB 32b
-            r = (pix32 >> 16) & 0xff;
-            g = (pix32 >> 8) & 0xff;
-            b = (pix32 >> 0) & 0xff;
-            break;
-        }
+        // 8888 ARGB 32b
+        r = (pix32 >> 16) & 0xff;
+        g = (pix32 >> 8) & 0xff;
+        b = (pix32 >> 0) & 0xff;
 
       } else {
-        die("Unsupported pixel depth during ppm output");
+        die("Unsupported pixel size during ppm output");
       }
 
       fputc(r, fb_file);
@@ -379,14 +373,10 @@ main(int argc, char **argv)
     printf("Usage: %s [reg-dump] [vram-dump]\n", argv[0]);
     return 1;
   }
-
   init_binary_strings();
-
-  printf("PVR Dump Interpreter\n");
   Dump dump(argv[1], argv[2]);
 
-  process_region_array(dump);
-
+  // process_region_array(dump);
   dump_framebuffer(dump, "simple");
 
   return 0;

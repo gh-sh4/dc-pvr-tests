@@ -16,35 +16,6 @@
 
 using namespace test_flags;
 
-union RegionArrayControlWord {
-  struct {
-    uint32_t _0 : 2;
-    uint32_t tile_x : 6;
-    uint32_t tile_y : 6;
-    uint32_t _1 : 14;
-    uint32_t dont_flush : 1;
-    uint32_t presort : 1;
-    uint32_t dont_zclear : 1;
-    uint32_t last : 1;
-  };
-  uint32_t raw;
-};
-
-union RegionArrayListPtr {
-  struct {
-    uint32_t list_ptr : 24;
-    uint32_t _1 : 7;
-    uint32_t empty : 1;
-  };
-  uint32_t raw;
-};
-
-struct RegionArrayEntry {
-  RegionArrayControlWord control;
-  RegionArrayListPtr lists[5];
-};
-static_assert(sizeof(RegionArrayEntry) == 6 * sizeof(uint32_t));
-
 void
 ta_user_clip(unsigned tx_min, unsigned ty_min, unsigned tx_max, unsigned ty_max)
 {
@@ -86,7 +57,11 @@ ta_global_poly0()
 }
 
 void
-ta_poly0_vertex(float x, float y, float z, bool end_of_strip = false)
+ta_poly0_vertex(float x,
+                float y,
+                float z,
+                uint32_t packed_color,
+                bool end_of_strip = false)
 {
   const uint32_t para_type = 7;
 
@@ -97,7 +72,7 @@ ta_poly0_vertex(float x, float y, float z, bool end_of_strip = false)
   memcpy(&data[1], &x, sizeof(float));
   memcpy(&data[2], &y, sizeof(float));
   memcpy(&data[3], &z, sizeof(float));
-  data[6] = 0xff00ff00; // base color
+  data[6] = packed_color; // base color
 
   sq_cpy((void *)map::TA_POLYGON_FIFO, data, 32);
 }
@@ -169,9 +144,9 @@ REGISTER_TEST(ta_basic_single_poly, TEST_TA, "Basic TA single polygon test")
              "OL entry should be uninitialized after global polygon params");
   print_ta_ol_pointers(ctx.log_file(), 4);
 
-  ta_poly0_vertex(0.0f, 0.0f, 1.0f);
-  ta_poly0_vertex(0.0f, 48.0f, 1.0f);
-  ta_poly0_vertex(48.0f, 48.0f, 1.0f, true);
+  ta_poly0_vertex(0.0f, 0.0f, 1.0f, 0xffff'ffff);
+  ta_poly0_vertex(0.0f, 48.0f, 1.0f, 0xffff'ffff);
+  ta_poly0_vertex(48.0f, 48.0f, 1.0f, 0xffff'ffff, true);
 
   thd_sleep(10);
 
@@ -229,9 +204,9 @@ REGISTER_TEST(ta_nan_depth, TEST_TA, "Demonstrate NaN handling by the TA")
 
   // Setup a single polygon
   ta_global_poly0();
-  ta_poly0_vertex(-NaN, -NaN, NaN);
-  ta_poly0_vertex(-NaN, 30, NaN);
-  ta_poly0_vertex(30, 30, NaN, true);
+  ta_poly0_vertex(-NaN, -NaN, NaN, 0xffff'ffff);
+  ta_poly0_vertex(-NaN, 30, NaN, 0xffff'ffff);
+  ta_poly0_vertex(30, 30, NaN, 0xffff'ffff, true);
   ta_end_of_list();
 
   thd_sleep(10);
@@ -259,17 +234,12 @@ interrupt_handler(unsigned long evt, void *data)
 
 REGISTER_TEST(isp_simple_render, TEST_TA | TEST_ISP, "Simple ISP render test")
 {
-  asic_evt_set_handler(ASIC_EVT_PVR_RENDERDONE_ISP, interrupt_handler, nullptr);
-  asic_evt_enable(ASIC_EVT_PVR_RENDERDONE_ISP, ASIC_IRQ_DEFAULT);
-  asic_evt_set_handler(ASIC_EVT_PVR_RENDERDONE_TSP, interrupt_handler, nullptr);
-  asic_evt_enable(ASIC_EVT_PVR_RENDERDONE_TSP, ASIC_IRQ_DEFAULT);
-  asic_evt_set_handler(ASIC_EVT_PVR_RENDERDONE_VIDEO, interrupt_handler, nullptr);
-  asic_evt_enable(ASIC_EVT_PVR_RENDERDONE_VIDEO, ASIC_IRQ_DEFAULT);
+  MyPVR pvr;
 
   memset((void *)0xa500'0000, 0, 4 * 1024 * 1024);
 
-  SOFTRESET = 0b011; // Assert then de-assert TA/ISP reset
-  SOFTRESET = 0b000;
+  SOFTRESET = 0b11; // Assert then de-assert TA/ISP reset
+  SOFTRESET = 0b00;
 
   TA_ISP_BASE       = 0x0000'0000; // First MiB for ISP data
   TA_ISP_LIMIT      = 0x0010'0000;
@@ -282,133 +252,58 @@ REGISTER_TEST(isp_simple_render, TEST_TA | TEST_ISP, "Simple ISP render test")
   TA_LIST_INIT = 0x8000'0000; // Trigger initializing the TA
   (void)TA_LIST_INIT;         // dummy read to ensure write completes
 
-  ctx.pvr_reg_vram_dump("ta_init");
+  // ctx.pvr_reg_vram_dump("ta_init");
 
   // Setup a single polygon
   ta_global_poly0();
-  ta_poly0_vertex(0.0f, 0.0f, 0.5f);
-  ta_poly0_vertex(10.0f, 50.0f, 0.5f);
-  ta_poly0_vertex(48.0f, 40.0f, 0.5f, true);
-  ta_poly0_vertex(32.0f, 0.0f, 0.2f);
-  ta_poly0_vertex(40.0f, 20.0f, 0.2f);
-  ta_poly0_vertex(32.0f, 10.0f, 0.2f, true);
+  ta_poly0_vertex(32.0f, 0.0f, 0.5f, 0xffff'0000);
+  ta_poly0_vertex(0.0f, 64.0f, 0.5f, 0xff00'ff00);
+  ta_poly0_vertex(64.0f, 64.0f, 0.5f, 0xff00'00ff, true);
   ta_end_of_list();
 
-  thd_sleep(10);
+  // Wait for TA to finish binning
+  pvr.wait_for_events(ASIC_EVT_PVR_OPAQUEDONE);
 
-  // ISP setup
-
-  // Background depth and plane
-  union {
-    uint32_t u;
-    float f;
-  } u32f;
-  u32f.f = 0.125f;
-
-  isp_backgnd_plane_t backgnd;
-  backgnd.isp_tsp_control = 0x90800000; // DepthTest:GreaterOrEqual | GouraudShading
-  backgnd.tsp_control     = 0x20800440; // Src:ONE Dst:ZERO
-  backgnd.texture_control = 0x00000000; //
-  backgnd.x1              = 0;
-  backgnd.y1              = 64;
-  backgnd.z1              = u32f.f;
-  backgnd.color1          = 0xff00'0000;
-  backgnd.x2              = 0;
-  backgnd.y2              = 0;
-  backgnd.z2              = u32f.f;
-  backgnd.color2          = 0xff00'0000;
-  backgnd.x3              = 64;
-  backgnd.y3              = 64;
-  backgnd.z3              = u32f.f;
-  backgnd.color3          = 0xff00'0000;
-
+  // Setup the background plane and depth
   const uint32_t isp_backgnd_vram_offset = 0x0038'0000;
-  vram32_memcpy(isp_backgnd_vram_offset, (const uint32_t *)&backgnd, sizeof(backgnd));
-  ISP_BACKGND_T = (0b001 << 24) | ((isp_backgnd_vram_offset >> 2) << 3);
-  ISP_BACKGND_D = u32f.u;
+  pvr.set_background(isp_backgnd_vram_offset, 64, 64, 0xff00'0000, 1.0f / 1024);
 
   /* Setup region array */
-  FPU_PARAM_CFG = (1 << 21) | (0x1f << 14) | (0x1f << 8) | (7 << 4) |
-                  (3 << 0);  // Type 2 Region Array Entries
-  REGION_BASE = 0x0030'0000; // Region array @ 3MiB
-
-  RegionArrayEntry entry    = {};
-  entry.control.raw         = 0x0000'0000;
-  entry.control.tile_x      = 0;
-  entry.control.tile_y      = 0;
-  entry.control.dont_flush  = 0;
-  entry.control.dont_zclear = 0;
-  entry.control.last        = 0;
-  entry.lists[0].raw        = 0x0010'0000;
-  entry.lists[1].raw        = 0x8000'0000;
-  entry.lists[2].raw        = 0x8000'0000;
-  entry.lists[3].raw        = 0x8000'0000;
-  entry.lists[4].raw        = 0x8000'0000;
-
-  static_assert(sizeof(entry) == 24);
-  uint32_t region_array_offset = 0x0030'0000;
-  vram32_memcpy(region_array_offset, (const uint32_t *)&entry, sizeof(entry));
-  region_array_offset += sizeof(entry);
-
-  entry.control.tile_x = 1;
-  entry.control.tile_y = 0;
-  entry.lists[0].raw   = 0x0010'0020;
-  vram32_memcpy(region_array_offset, (const uint32_t *)&entry, sizeof(entry));
-  region_array_offset += sizeof(entry);
-
-  entry.control.tile_x = 0;
-  entry.control.tile_y = 1;
-  entry.lists[0].raw   = 0x0010'0040;
-  vram32_memcpy(region_array_offset, (const uint32_t *)&entry, sizeof(entry));
-  region_array_offset += sizeof(entry);
-
-  entry.control.tile_x = 1;
-  entry.control.tile_y = 1;
-  entry.lists[0].raw   = 0x0010'0060;
-  entry.control.last   = 1;
-  vram32_memcpy(region_array_offset, (const uint32_t *)&entry, sizeof(entry));
-
+  REGION_BASE  = 0x0030'0000; // Region array @ 3MiB
   PARAM_BASE   = 0x0000'0000; // Read all parameter data from our single buffer
-  ISP_FEED_CFG = 0x00800408;  // FROM EXAMPLE XXX
+  ISP_FEED_CFG = 0x00800408;
 
   const uint32_t framebuffer_offset         = 0x0020'0000;
   const uint32_t framebuffer_bytes_per_line = 4 * 64;
 
-  FB_W_CTRL        = 0x0000'0006;
-  FB_W_LINE_STRIDE = framebuffer_bytes_per_line / 8; // in 64-bit units
-  FB_W_SOF1        = framebuffer_offset;
-  FB_W_SOF2        = framebuffer_offset + framebuffer_bytes_per_line;
-  FB_X_CLIP        = (63 << 16) | (0 << 0); // Render x in [0, 64)
-  FB_Y_CLIP        = (63 << 16) | (0 << 0); // Render y in [0, 64)
+  pvr.setup_region_array(RegionArrayDef {
+    .region_array_offset = 0x0030'0000,
+    .opb_start_offset    = 0x0010'0000,
+    .list_opb_sizes      = { 0x20, 0, 0, 0, 0 },
+    .width               = 64,
+    .height              = 64,
+  });
 
-  FOG_CLAMP_MIN = 0x0000'0000;
-  FOG_CLAMP_MAX = 0xffff'ffff;
+  pvr.set_fb_regs(FrameBufferDef {
+    .vram32_addr       = framebuffer_offset,
+    .width             = 64,
+    .height            = 64,
+    .line_stride_bytes = framebuffer_bytes_per_line,
+    .pixel_format      = framebuffer_pixel_format_t::ARGB_8888,
+  });
 
   vram32_memset(framebuffer_offset, 0xcafebeef, 512 * 1024);
 
-  SCALER_CTL = 0x0000'0400;
-  // FB_BURSTCTRL  = 0x00093f39;
-  // SDRAM_REFRESH = 0x0000'0020;
-  // SDRAM_CFG     = 0x15d1c951;
-  FPU_PARAM_CFG = 0x0027df77;
-  Y_COEFF       = 0x0000'8040;
-
-  SOFTRESET = 0b011; // Assert then de-assert TA/ISP reset
-  SOFTRESET = 0b000;
-
-  // Trigger ISP rendering
+  // Trigger ISP rendering, wait for shading (and FB writeback) to complete
   STARTRENDER = 0xffff'ffff;
-
-  thd_sleep(10);
-
-  FB_R_SOF1 = framebuffer_offset;
-  FB_R_SOF2 = framebuffer_offset + framebuffer_bytes_per_line;
-  FB_R_CTRL = 3 << 2;
-  FB_R_SIZE = (64 << 10) | (64 << 0); // Assume 0 FB_R_SIZE.modulus
+  pvr.wait_for_events(ASIC_EVT_PVR_RENDERDONE_TSP);
 
   ctx.pvr_reg_vram_dump("end_of_test");
-
-  asic_evt_disable(ASIC_EVT_PVR_RENDERDONE_VIDEO, ASIC_IRQ_DEFAULT);
-  asic_evt_disable(ASIC_EVT_PVR_RENDERDONE_TSP, ASIC_IRQ_DEFAULT);
-  asic_evt_disable(ASIC_EVT_PVR_RENDERDONE_ISP, ASIC_IRQ_DEFAULT);
+  ctx.write_framebuffer_ppm("end_of_test",
+                            FrameBufferDef {
+                              .vram32_addr  = framebuffer_offset,
+                              .width        = 64,
+                              .height       = 64,
+                              .pixel_format = framebuffer_pixel_format_t::ARGB_8888,
+                            });
 }

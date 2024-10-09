@@ -2,6 +2,8 @@
 
 #include <vector>
 
+struct FrameBufferDef;
+
 namespace test_flags {
 enum TestFlagBits : uint32_t
 {
@@ -60,6 +62,8 @@ public:
   void assert(bool condition, const char *msg);
 
   void pvr_reg_vram_dump(const char *dump_name);
+
+  void write_framebuffer_ppm(const char *name, FrameBufferDef fb_dev);
 
   void host_printf(const char *fmt, ...);
 
